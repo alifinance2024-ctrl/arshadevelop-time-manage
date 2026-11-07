@@ -1,0 +1,6 @@
+{
+  "name": "رفیق یار - همراه من",
+  "description": "دستیار هوشمند و آفلاین مدیریت زمان و وظایف صوتی با پردازش زبان فارسی، تقویم شمسی و برنامه‌ریز خودکار",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
