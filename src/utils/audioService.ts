@@ -103,6 +103,41 @@ class AudioService {
     osc.start(now);
     osc.stop(now + 0.14);
   }
+
+  /**
+   * Plays a pleasant multi-tone alarm chime for 5 minutes before task reminder
+   */
+  playTaskReminderAlarm(): void {
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const notes = [
+      { f: 587.33, t: 0.00, d: 0.18 }, // D5
+      { f: 739.99, t: 0.18, d: 0.18 }, // F#5
+      { f: 880.00, t: 0.36, d: 0.22 }, // A5
+      { f: 1174.66, t: 0.58, d: 0.35 },// D6
+      { f: 880.00, t: 0.95, d: 0.20 }, // A5
+      { f: 1174.66, t: 1.15, d: 0.45 },// D6
+    ];
+
+    const now = ctx.currentTime;
+    notes.forEach((note) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(note.f, now + note.t);
+
+      gain.gain.setValueAtTime(0.20, now + note.t);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + note.t + note.d);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now + note.t);
+      osc.stop(now + note.t + note.d);
+    });
+  }
 }
 
 export const audioService = new AudioService();

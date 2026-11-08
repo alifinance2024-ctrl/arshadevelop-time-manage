@@ -50,144 +50,180 @@ export function toEnglishDigits(input: string): string {
     .replace(/[٠-٩]/g, (d) => (d.charCodeAt(0) - 1632).toString());
 }
 
+import * as jalaali from 'jalaali-js';
+
 /**
  * Gregorian to Jalali conversion
  */
 export function gregorianToJalali(gy: number, gm: number, gd: number): { jy: number; jm: number; jd: number } {
-  const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-  let jy: number;
-  if (gy > 1600) {
-    jy = 979;
-    gy -= 1600;
-  } else {
-    jy = 0;
-    gy -= 621;
-  }
-  const gy2 = gm > 2 ? gy + 1 : gy;
-  let days =
-    365 * gy +
-    Math.floor((gy2 + 3) / 4) -
-    Math.floor((gy2 + 99) / 100) +
-    Math.floor((gy2 + 399) / 400) -
-    80 +
-    gd +
-    g_d_m[gm - 1];
-  jy += 33 * Math.floor(days / 12053);
-  days %= 12053;
-  jy += 4 * Math.floor(days / 1461);
-  days %= 1461;
-  if (days > 365) {
-    jy += Math.floor((days - 1) / 365);
-    days = (days - 1) % 365;
-  }
-  const jm =
-    days < 186 ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
-  const jd = 1 + (days < 186 ? days % 31 : (days - 186) % 30);
-  return { jy, jm, jd };
+  return jalaali.toJalaali(gy, gm, gd);
 }
 
 /**
  * Jalali to Gregorian conversion
  */
 export function jalaliToGregorian(jy: number, jm: number, jd: number): { gy: number; gm: number; gd: number } {
-  let sal_a: number;
-  let gy: number;
-  if (jy > 979) {
-    gy = 1600;
-    jy -= 979;
-  } else {
-    gy = 621;
-  }
-  let days =
-    365 * jy +
-    Math.floor(jy / 33) * 8 +
-    Math.floor(((jy % 33) + 3) / 4) +
-    78 +
-    jd +
-    (jm < 7 ? (jm - 1) * 31 : (jm - 7) * 30 + 186);
-  gy += 400 * Math.floor(days / 146097);
-  days %= 146097;
-  if (days > 36524) {
-    gy += 100 * Math.floor(--days / 36524);
-    days %= 36524;
-    if (days >= 365) days++;
-  }
-  gy += 4 * Math.floor(days / 1461);
-  days %= 1461;
-  if (days > 365) {
-    gy += Math.floor((days - 1) / 365);
-    days = (days - 1) % 365;
-  }
-  sal_a = [0, 31, ((gy % 4 === 0 && gy % 100 !== 0) || (gy % 400 === 0)) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][1];
-  let gm = 0;
-  let gd = 0;
-  const g_d_m = [
-    0,
-    31,
-    ((gy % 4 === 0 && gy % 100 !== 0) || (gy % 400 === 0)) ? 29 : 28,
-    31,
-    30,
-    31,
-    30,
-    31,
-    31,
-    30,
-    31,
-    30,
-    31
-  ];
-  for (gm = 0; gm < 13; gm++) {
-    const v = g_d_m[gm];
-    if (days <= v) {
-      gd = days;
-      break;
-    }
-    days -= v;
-  }
-  return { gy, gm, gd: gd === 0 ? 1 : gd };
+  return jalaali.toGregorian(jy, jm, jd);
 }
 
-/**
- * Returns today's Jalali date components
- */
-export function getTodayJalali(): {
+export interface PersianDayDefinition {
+  dayNumber: number;     // 1 to 7
+  dowIndex: number;      // 0 to 6 (0 = شنبه, ..., 6 = جمعه)
+  name: string;          // "شنبه"
+  ordinalName: string;   // "روز اول"
+}
+
+export const PERSIAN_DAY_DEFINITIONS: PersianDayDefinition[] = [
+  { dayNumber: 1, dowIndex: 0, name: 'شنبه', ordinalName: 'روز اول' },
+  { dayNumber: 2, dowIndex: 1, name: 'یکشنبه', ordinalName: 'روز دوم' },
+  { dayNumber: 3, dowIndex: 2, name: 'دوشنبه', ordinalName: 'روز سوم' },
+  { dayNumber: 4, dowIndex: 3, name: 'سه‌شنبه', ordinalName: 'روز چهارم' },
+  { dayNumber: 5, dowIndex: 4, name: 'چهارشنبه', ordinalName: 'روز پنجم' },
+  { dayNumber: 6, dowIndex: 5, name: 'پنجشنبه', ordinalName: 'روز ششم' },
+  { dayNumber: 7, dowIndex: 6, name: 'جمعه', ordinalName: 'روز هفتم' }
+];
+
+export interface ActiveJalaliDate {
   jy: number;
   jm: number;
   jd: number;
-  dayOfWeek: number; // 0 = Saturday, ..., 6 = Friday
-  dayName: string;
-  monthName: string;
-  formatted: string;     // e.g. "1405/08/17"
-  humanReadable: string; // e.g. "شنبه ۱۷ آبان ۱۴۰۵"
-} {
+  dayOfWeek: number;     // 0 = Saturday, ..., 6 = Friday
+  dayNumber: number;     // 1 = شنبه, 2 = یکشنبه, ..., 7 = جمعه
+  dayName: string;       // "شنبه"
+  dayOrdinalName: string;// "روز اول"
+  monthName: string;     // "آبان"
+  formatted: string;     // "1405/08/17"
+  humanReadable: string; // "شنبه ۱۷ آبان ۱۴۰۵"
+  activeTime: string;    // "09:14"
+  isCustom: boolean;
+}
+
+/**
+ * Returns today's Jalali date components from system clock
+ */
+export function getTodayJalali(): ActiveJalaliDate {
   const now = new Date();
   const gy = now.getFullYear();
   const gm = now.getMonth() + 1;
   const gd = now.getDate();
   const { jy, jm, jd } = gregorianToJalali(gy, gm, gd);
 
-  // JavaScript getDay(): 0 is Sunday, 6 is Saturday
-  // Persian week: Saturday is index 0
   const jsDay = now.getDay();
-  const persianWeekDayIndex = (jsDay + 1) % 7;
+  const persianWeekDayIndex = (jsDay + 1) % 7; // 0 = شنبه, ..., 6 = جمعه
+  const dayNumber = persianWeekDayIndex + 1;    // 1 = شنبه, ..., 7 = جمعه
 
-  const dayName = PERSIAN_WEEKDAYS[persianWeekDayIndex];
+  const dayDef = PERSIAN_DAY_DEFINITIONS[persianWeekDayIndex];
   const monthName = PERSIAN_MONTH_NAMES[jm - 1];
   const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
   const formatted = `${jy}/${pad(jm)}/${pad(jd)}`;
-  const humanReadable = `${dayName} ${toPersianDigits(jd)} ${monthName} ${toPersianDigits(jy)}`;
+  const humanReadable = `${dayDef.name} ${toPersianDigits(jd)} ${monthName} ${toPersianDigits(jy)}`;
+
+  const h = now.getHours().toString().padStart(2, '0');
+  const m = now.getMinutes().toString().padStart(2, '0');
 
   return {
     jy,
     jm,
     jd,
     dayOfWeek: persianWeekDayIndex,
-    dayName,
+    dayNumber,
+    dayName: dayDef.name,
+    dayOrdinalName: dayDef.ordinalName,
     monthName,
     formatted,
-    humanReadable
+    humanReadable,
+    activeTime: `${h}:${m}`,
+    isCustom: false
   };
 }
+
+/**
+ * Returns effective app Jalali date:
+ * If user enabled custom app date/time in settings, uses that.
+ * Otherwise defaults to system today.
+ */
+export function getAppActiveJalali(settings?: {
+  useCustomAppDateTime?: boolean;
+  customAppDate?: string;
+  customAppTime?: string;
+}): ActiveJalaliDate {
+  if (settings?.useCustomAppDateTime && settings?.customAppDate) {
+    const parts = settings.customAppDate.split('/').map((s) => parseInt(toEnglishDigits(s), 10));
+    if (parts.length === 3) {
+      const [jy, jm, jd] = parts;
+      const { gy, gm, gd } = jalaliToGregorian(jy, jm, jd);
+      const d = new Date(Date.UTC(gy, gm - 1, gd, 12, 0, 0));
+      const persianWeekDayIndex = (d.getUTCDay() + 1) % 7;
+      const dayNumber = persianWeekDayIndex + 1;
+      const dayDef = PERSIAN_DAY_DEFINITIONS[persianWeekDayIndex];
+      const monthName = PERSIAN_MONTH_NAMES[jm - 1] || '';
+      const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+      const formatted = `${jy}/${pad(jm)}/${pad(jd)}`;
+      const humanReadable = `${dayDef.name} (${dayDef.ordinalName}) ${toPersianDigits(jd)} ${monthName} ${toPersianDigits(jy)}`;
+
+      return {
+        jy,
+        jm,
+        jd,
+        dayOfWeek: persianWeekDayIndex,
+        dayNumber,
+        dayName: dayDef.name,
+        dayOrdinalName: dayDef.ordinalName,
+        monthName,
+        formatted,
+        humanReadable,
+        activeTime: settings.customAppTime || '09:00',
+        isCustom: true
+      };
+    }
+  }
+
+  return getTodayJalali();
+}
+
+export interface WeekDayWithDate {
+  dayNumber: number;      // 1 to 7
+  dowIndex: number;       // 0 to 6
+  name: string;           // "شنبه"
+  ordinalName: string;    // "روز اول"
+  jalaliDate: string;     // "1405/08/17"
+  dayOfMonth: number;     // 17
+  monthName: string;      // "آبان"
+  shortLabel: string;     // "۱۷ آبان"
+  fullLabel: string;      // "شنبه (روز ۱) · ۱۷ آبان"
+  isToday: boolean;
+}
+
+/**
+ * Returns all 7 days of the current week (شنبه تا جمعه) with both day names and exact computed dates
+ */
+export function getWeekDaysWithDates(baseDate: ActiveJalaliDate): WeekDayWithDate[] {
+  return PERSIAN_DAY_DEFINITIONS.map((def) => {
+    const offset = def.dowIndex - baseDate.dayOfWeek;
+    const targetJalali = addDaysToJalali(baseDate.formatted, offset);
+    const parts = targetJalali.split('/').map((s) => parseInt(toEnglishDigits(s), 10));
+    const jd = parts[2] || 1;
+    const jm = parts[1] || 1;
+    const monthName = PERSIAN_MONTH_NAMES[jm - 1] || '';
+    const shortLabel = `${toPersianDigits(jd)} ${monthName}`;
+    const fullLabel = `${def.name} (روز ${toPersianDigits(def.dayNumber)}) · ${shortLabel}`;
+
+    return {
+      dayNumber: def.dayNumber,
+      dowIndex: def.dowIndex,
+      name: def.name,
+      ordinalName: def.ordinalName,
+      jalaliDate: targetJalali,
+      dayOfMonth: jd,
+      monthName,
+      shortLabel,
+      fullLabel,
+      isToday: targetJalali === baseDate.formatted
+    };
+  });
+}
+
+
 
 /**
  * Formats a Date object to Jalali formatted string: "YYYY/MM/DD"
@@ -208,10 +244,11 @@ export function addDaysToJalali(jalaliStr: string, daysToAdd: number): string {
   const parts = jalaliStr.split('/').map((s) => parseInt(toEnglishDigits(s), 10));
   if (parts.length !== 3) return jalaliStr;
   const [jy, jm, jd] = parts;
-  const { gy, gm, gd } = jalaliToGregorian(jy, jm, jd);
-  const d = new Date(gy, gm - 1, gd);
-  d.setDate(d.getDate() + daysToAdd);
-  return dateToJalaliString(d);
+  const { gy, gm, gd } = jalaali.toGregorian(jy, jm, jd);
+  const d = new Date(Date.UTC(gy, gm - 1, gd + daysToAdd, 12, 0, 0));
+  const res = jalaali.toJalaali(d);
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  return `${res.jy}/${pad(res.jm)}/${pad(res.jd)}`;
 }
 
 /**
@@ -225,9 +262,9 @@ export function formatJalaliHuman(jalaliStr: string): string {
   const monthName = PERSIAN_MONTH_NAMES[jm - 1] || '';
   
   // Also calculate weekday
-  const { gy, gm, gd } = jalaliToGregorian(jy, jm, jd);
-  const d = new Date(gy, gm - 1, gd);
-  const persianWeekDayIndex = (d.getDay() + 1) % 7;
+  const { gy, gm, gd } = jalaali.toGregorian(jy, jm, jd);
+  const d = new Date(Date.UTC(gy, gm - 1, gd, 12, 0, 0));
+  const persianWeekDayIndex = (d.getUTCDay() + 1) % 7;
   const dayName = PERSIAN_WEEKDAYS[persianWeekDayIndex];
 
   return `${dayName} ${toPersianDigits(jd)} ${monthName} ${toPersianDigits(jy)}`;
@@ -237,18 +274,14 @@ export function formatJalaliHuman(jalaliStr: string): string {
  * Checks if a Jalali year is leap
  */
 export function isJalaliLeapYear(jy: number): boolean {
-  const r = (jy - (jy > 0 ? 474 : 473)) % 2820;
-  return ((r + 474 + 38) * 682) % 2816 < 682;
+  return jalaali.isLeapJalaaliYear(jy);
 }
 
 /**
  * Returns number of days in a Jalali month
  */
 export function getDaysInJalaliMonth(jy: number, jm: number): number {
-  if (jm >= 1 && jm <= 6) return 31;
-  if (jm >= 7 && jm <= 11) return 30;
-  if (jm === 12) return isJalaliLeapYear(jy) ? 30 : 29;
-  return 30;
+  return jalaali.jalaaliMonthLength(jy, jm);
 }
 
 /**
@@ -268,8 +301,8 @@ export function generateJalaliMonthGrid(jy: number, jm: number): {
   
   // Find first day of this Jalali month's weekday
   const { gy, gm, gd } = jalaliToGregorian(jy, jm, 1);
-  const firstDate = new Date(gy, gm - 1, gd);
-  const startDayOfWeek = (firstDate.getDay() + 1) % 7; // 0 = Sat, ..., 6 = Fri
+  const firstDate = new Date(Date.UTC(gy, gm - 1, gd, 12, 0, 0));
+  const startDayOfWeek = (firstDate.getUTCDay() + 1) % 7; // 0 = Sat, ..., 6 = Fri
 
   const days: Array<{
     dayNumber: number;

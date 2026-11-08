@@ -19,6 +19,7 @@ import { audioService } from '../utils/audioService';
 
 interface AllTasksViewProps {
   tasks: Task[];
+  activeAppDate: import('../utils/jalali').ActiveJalaliDate;
   onToggleTaskComplete: (taskId: string) => void;
   onEditTask: (task: Task) => void;
   onDeleteTask: (taskId: string) => void;
@@ -29,6 +30,7 @@ interface AllTasksViewProps {
 
 export const AllTasksView: React.FC<AllTasksViewProps> = ({
   tasks,
+  activeAppDate,
   onToggleTaskComplete,
   onEditTask,
   onDeleteTask,
@@ -36,7 +38,7 @@ export const AllTasksView: React.FC<AllTasksViewProps> = ({
   onOpenNewTask,
   customCategories
 }) => {
-  const today = getTodayJalali();
+  const today = activeAppDate;
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'completed' | 'overdue'>('all');

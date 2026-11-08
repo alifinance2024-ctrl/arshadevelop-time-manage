@@ -1,5 +1,13 @@
 import { ParsedVoiceResult, Priority, RecurrenceType } from '../types';
-import { addDaysToJalali, getTodayJalali, toEnglishDigits } from './jalali';
+import { 
+  addDaysToJalali, 
+  getTodayJalali, 
+  toEnglishDigits, 
+  toPersianDigits,
+  ActiveJalaliDate, 
+  PERSIAN_DAY_DEFINITIONS,
+  PERSIAN_MONTH_NAMES
+} from './jalali';
 
 interface PersianWordMapping {
   keywords: string[];
@@ -59,20 +67,78 @@ const CATEGORY_RULES: PersianWordMapping[] = [
   }
 ];
 
-const WEEKDAY_NAMES_MAP: { [key: string]: number } = {
-  'شنبه': 0,
-  'یکشنبه': 1,
-  'دوشنبه': 2,
-  'سه‌شنبه': 3,
-  'سه شنبه': 3,
-  'چهارشنبه': 4,
-  'پنجشنبه': 5,
-  'پنج شنبه': 5,
-  'جمعه': 6
-};
+/**
+ * جدول هوشمند تطبیق روزهای هفته و شماره روزها (درخواست صریح کاربر):
+ * شنبه = روز اول (1)
+ * یکشنبه = روز دوم (2)
+ * دوشنبه = روز سوم (3)
+ * سه‌شنبه = روز چهارم (4)
+ * چهارشنبه = روز پنجم (5)
+ * پنجشنبه = روز ششم (6)
+ * جمعه = روز هفتم (7)
+ */
+interface DayMappingRule {
+  patterns: string[];
+  dayNumber: number; // 1 to 7
+  dowIndex: number;  // 0 to 6 (0 = شنبه)
+  standardName: string;
+  ordinalName: string;
+}
+
+export const DAY_NUMBER_MAPPING_RULES: DayMappingRule[] = [
+  {
+    patterns: ['شنبه', 'روز اول', 'روز ۱', 'روز 1', 'روز یکم'],
+    dayNumber: 1,
+    dowIndex: 0,
+    standardName: 'شنبه',
+    ordinalName: 'روز اول'
+  },
+  {
+    patterns: ['یکشنبه', 'یک شنبه', 'روز دوم', 'روز ۲', 'روز 2'],
+    dayNumber: 2,
+    dowIndex: 1,
+    standardName: 'یکشنبه',
+    ordinalName: 'روز دوم'
+  },
+  {
+    patterns: ['دوشنبه', 'دو شنبه', 'روز سوم', 'روز ۳', 'روز 3'],
+    dayNumber: 3,
+    dowIndex: 2,
+    standardName: 'دوشنبه',
+    ordinalName: 'روز سوم'
+  },
+  {
+    patterns: ['سه‌شنبه', 'سه شنبه', 'روز چهارم', 'روز ۴', 'روز 4'],
+    dayNumber: 4,
+    dowIndex: 3,
+    standardName: 'سه‌شنبه',
+    ordinalName: 'روز چهارم'
+  },
+  {
+    patterns: ['چهارشنبه', 'چهار شنبه', 'روز پنجم', 'روز ۵', 'روز 5'],
+    dayNumber: 5,
+    dowIndex: 4,
+    standardName: 'چهارشنبه',
+    ordinalName: 'روز پنجم'
+  },
+  {
+    patterns: ['پنجشنبه', 'پنج شنبه', 'روز ششم', 'روز ۶', 'روز 6'],
+    dayNumber: 6,
+    dowIndex: 5,
+    standardName: 'پنجشنبه',
+    ordinalName: 'روز ششم'
+  },
+  {
+    patterns: ['جمعه', 'روز هفتم', 'روز ۷', 'روز 7'],
+    dayNumber: 7,
+    dowIndex: 6,
+    standardName: 'جمعه',
+    ordinalName: 'روز هفتم'
+  }
+];
 
 /**
- * Extracts Persian time pattern e.g. "ساعت ۹", "ساعت ۱۰:۳۰", "ساعت ۷ صبح", "۴ عصر"
+ * استخراج زمان از گفتار فارسی: e.g. "ساعت ۹", "ساعت ۱۰:۳۰", "ساعت ۷ صبح", "۴ عصر"
  */
 function extractTime(text: string): { time?: string; isFixed: boolean; matchedSnippet?: string } {
   const norm = toEnglishDigits(text);
@@ -137,7 +203,7 @@ function extractTime(text: string): { time?: string; isFixed: boolean; matchedSn
 }
 
 /**
- * Extracts Persian duration e.g. "دو ساعت", "نیم ساعت", "۳۰ دقیقه", "۱ ساعت و نیم"
+ * استخراج مدت‌زمان
  */
 function extractDuration(text: string): { durationMinutes: number; matchedSnippet?: string } {
   const norm = toEnglishDigits(text);
@@ -167,7 +233,6 @@ function extractDuration(text: string): { durationMinutes: number; matchedSnippe
     return { durationMinutes: 15, matchedSnippet: '۱۵ دقیقه' };
   }
 
-  // Generic regex for X دقیقه or X ساعت
   const minMatch = norm.match(/([0-9]+)\s*دقیقه/);
   if (minMatch) {
     return { durationMinutes: parseInt(minMatch[1], 10), matchedSnippet: minMatch[0] };
@@ -178,34 +243,41 @@ function extractDuration(text: string): { durationMinutes: number; matchedSnippe
     return { durationMinutes: parseInt(hrMatch[1], 10) * 60, matchedSnippet: hrMatch[0] };
   }
 
-  return { durationMinutes: 30 }; // default 30 min
+  return { durationMinutes: 30 };
 }
 
 /**
- * Extracts Persian date and recurrence
+ * استخراج هوشمند تاریخ، تکرار و شماره روزهای هفته (بر اساس تاریخ فعال نرم‌افزار)
  */
-function extractDateAndRecurrence(text: string): {
+function extractDateAndRecurrence(
+  text: string, 
+  baseDate: ActiveJalaliDate
+): {
   dueDate: string;
   recurrence: RecurrenceType;
   finalDeadline?: string;
   matchedSnippet?: string;
   hasExplicitDate: boolean;
+  matchedDayNumber?: number;
+  matchedDayName?: string;
 } {
-  const today = getTodayJalali();
-  const currentDow = today.dayOfWeek; // 0 = Sat, ..., 6 = Fri
+  const currentDow = baseDate.dayOfWeek; // 0 = Sat (Day 1) ... 6 = Fri (Day 7)
+  const norm = toEnglishDigits(text);
 
-  // Check Recurrence first
+  // 1. Recurrence
   if (text.includes('هر روز') || text.includes('روزانه')) {
     return {
-      dueDate: today.formatted,
+      dueDate: baseDate.formatted,
       recurrence: 'daily',
       matchedSnippet: 'هر روز',
-      hasExplicitDate: true
+      hasExplicitDate: true,
+      matchedDayNumber: baseDate.dayNumber,
+      matchedDayName: `${baseDate.dayName} (روز ${baseDate.dayNumber})`
     };
   }
   if (text.includes('هر هفته') || text.includes('هفتگی')) {
     return {
-      dueDate: today.formatted,
+      dueDate: baseDate.formatted,
       recurrence: 'weekly',
       matchedSnippet: 'هر هفته',
       hasExplicitDate: true
@@ -213,106 +285,142 @@ function extractDateAndRecurrence(text: string): {
   }
   if (text.includes('هر ماه') || text.includes('ماهانه')) {
     return {
-      dueDate: today.formatted,
+      dueDate: baseDate.formatted,
       recurrence: 'monthly',
       matchedSnippet: 'هر ماه',
       hasExplicitDate: true
     };
   }
 
-  // Deadlines: "تا آخر هفته", "تا پایان هفته"
+  // 2. Deadlines: "تا آخر هفته", "تا پایان هفته"
   if (text.includes('تا آخر هفته') || text.includes('تا پایان هفته')) {
-    // End of Persian week is Thursday (index 5) or Friday (index 6)
     const daysUntilThursday = (5 - currentDow + 7) % 7;
-    const deadline = addDaysToJalali(today.formatted, daysUntilThursday === 0 ? 7 : daysUntilThursday);
+    const deadline = addDaysToJalali(baseDate.formatted, daysUntilThursday === 0 ? 7 : daysUntilThursday);
     return {
       dueDate: deadline,
       finalDeadline: deadline,
       recurrence: 'none',
       matchedSnippet: 'تا آخر هفته',
-      hasExplicitDate: true
+      hasExplicitDate: true,
+      matchedDayNumber: 6, // پنجشنبه = روز ششم
+      matchedDayName: 'پنجشنبه (روز ششم - آخر هفته)'
     };
   }
 
-  // "پس‌فردا" or "پس فردا"
+  // 3. "پس‌فردا"
   if (text.includes('پس‌فردا') || text.includes('پس فردا')) {
+    const targetDate = addDaysToJalali(baseDate.formatted, 2);
+    const nextDayNum = ((baseDate.dayNumber + 1) % 7) + 1;
+    const dayDef = PERSIAN_DAY_DEFINITIONS[nextDayNum - 1];
     return {
-      dueDate: addDaysToJalali(today.formatted, 2),
+      dueDate: targetDate,
       recurrence: 'none',
-      matchedSnippet: 'پس‌فردا',
-      hasExplicitDate: true
+      matchedSnippet: text.includes('پس‌فردا') ? 'پس‌فردا' : 'پس فردا',
+      hasExplicitDate: true,
+      matchedDayNumber: nextDayNum,
+      matchedDayName: `${dayDef.name} (${dayDef.ordinalName})`
     };
   }
 
-  // "فردا"
+  // 4. "فردا"
   if (text.includes('فردا')) {
+    const targetDate = addDaysToJalali(baseDate.formatted, 1);
+    const nextDayNum = (baseDate.dayNumber % 7) + 1;
+    const dayDef = PERSIAN_DAY_DEFINITIONS[nextDayNum - 1];
     return {
-      dueDate: addDaysToJalali(today.formatted, 1),
+      dueDate: targetDate,
       recurrence: 'none',
       matchedSnippet: 'فردا',
-      hasExplicitDate: true
+      hasExplicitDate: true,
+      matchedDayNumber: nextDayNum,
+      matchedDayName: `${dayDef.name} (${dayDef.ordinalName})`
     };
   }
 
-  // "امروز"
+  // 5. "امروز"
   if (text.includes('امروز')) {
     return {
-      dueDate: today.formatted,
+      dueDate: baseDate.formatted,
       recurrence: 'none',
       matchedSnippet: 'امروز',
-      hasExplicitDate: true
+      hasExplicitDate: true,
+      matchedDayNumber: baseDate.dayNumber,
+      matchedDayName: `${baseDate.dayName} (${baseDate.dayOrdinalName})`
     };
   }
 
-  // "هفته آینده"
+  // 6. "هفته آینده"
   if (text.includes('هفته آینده') || text.includes('هفته دیگه')) {
     return {
-      dueDate: addDaysToJalali(today.formatted, 7),
+      dueDate: addDaysToJalali(baseDate.formatted, 7),
       recurrence: 'none',
       matchedSnippet: 'هفته آینده',
-      hasExplicitDate: true
+      hasExplicitDate: true,
+      matchedDayNumber: baseDate.dayNumber,
+      matchedDayName: `${baseDate.dayName} (هفته آینده)`
     };
   }
 
-  // "ماه آینده"
+  // 7. "ماه آینده"
   if (text.includes('ماه آینده') || text.includes('ماه بعد')) {
     return {
-      dueDate: addDaysToJalali(today.formatted, 30),
+      dueDate: addDaysToJalali(baseDate.formatted, 30),
       recurrence: 'none',
       matchedSnippet: 'ماه آینده',
       hasExplicitDate: true
     };
   }
 
-  // Specific weekdays: e.g. "پنجشنبه", "شنبه آینده", "دوشنبه"
-  for (const [name, dow] of Object.entries(WEEKDAY_NAMES_MAP)) {
-    if (text.includes(name)) {
-      let daysAhead = (dow - currentDow + 7) % 7;
-      if (text.includes(`${name} آینده`) || text.includes(`${name} بعد`)) {
-        daysAhead += 7;
-      } else if (daysAhead === 0) {
-        // If saying the current day name, usually means next week's unless "امروز" was said
-        daysAhead = 7;
+  // 8. هوشمندتر شدن شناسایی روزها با نگاشت عدد ۱ تا ۷:
+  // شنبه = روز اول (1) ... جمعه = روز هفتم (7)
+  // نرمال‌سازی نیم‌فاصله‌ها
+  const cleanNorm = norm.replace(/\u200c/g, ' ').replace(/\s+/g, ' ');
+
+  for (const rule of DAY_NUMBER_MAPPING_RULES) {
+    for (const pat of rule.patterns) {
+      const cleanPat = pat.replace(/\u200c/g, ' ').replace(/\s+/g, ' ');
+      if (cleanNorm.includes(cleanPat) || text.includes(pat) || cleanNorm.includes(`روز ${cleanPat}`)) {
+        const targetDow = rule.dowIndex; // 0 for شنبه (روز اول) ... 6 for جمعه (روز هفتم)
+        let daysAhead = (targetDow - currentDow + 7) % 7;
+
+        // فقط در صورتی که کاربر صریحاً بگوید "آینده" یا "هفته بعد" به هفته بعد منتقل می‌شود
+        if (cleanNorm.includes(`${cleanPat} اینده`) || cleanNorm.includes(`${cleanPat} بعد`) || cleanNorm.includes('هفته بعد') || cleanNorm.includes('هفته دیگه')) {
+          daysAhead += 7;
+        }
+
+        const targetDate = addDaysToJalali(baseDate.formatted, daysAhead);
+        const parts = targetDate.split('/').map((s) => parseInt(toEnglishDigits(s), 10));
+        const dayOfMonth = parts[2] || 1;
+        const monthIndex = (parts[1] || 1) - 1;
+        const monthName = PERSIAN_MONTH_NAMES[monthIndex] || '';
+
+        return {
+          dueDate: targetDate,
+          recurrence: 'none',
+          matchedSnippet: pat,
+          hasExplicitDate: true,
+          matchedDayNumber: rule.dayNumber,
+          matchedDayName: `${rule.standardName} (روز ${toPersianDigits(rule.dayNumber)}) · ${toPersianDigits(dayOfMonth)} ${monthName}`
+        };
       }
-      return {
-        dueDate: addDaysToJalali(today.formatted, daysAhead),
-        recurrence: 'none',
-        matchedSnippet: name,
-        hasExplicitDate: true
-      };
     }
   }
 
-  // If no date was found at all:
+  // پیش‌فرض: تاریخ جاری نرم‌افزار
+  const defaultParts = baseDate.formatted.split('/').map((s) => parseInt(toEnglishDigits(s), 10));
+  const defaultDay = defaultParts[2] || 1;
+  const defaultMonth = (defaultParts[1] || 1) - 1;
   return {
-    dueDate: today.formatted,
+    dueDate: baseDate.formatted,
     recurrence: 'none',
-    hasExplicitDate: false
+    hasExplicitDate: false,
+    matchedDayNumber: baseDate.dayNumber,
+    matchedDayName: `${baseDate.dayName} (روز ${toPersianDigits(baseDate.dayNumber)}) · ${toPersianDigits(defaultDay)} ${PERSIAN_MONTH_NAMES[defaultMonth] || ''}`
   };
 }
 
 /**
- * Extracts priority
+ * استخراج اولویت
  */
 function extractPriority(text: string): { priority: Priority; matchedSnippet?: string } {
   if (text.includes('فوری') || text.includes('خیلی مهم') || text.includes('اورژانسی') || text.includes('حتماً')) {
@@ -328,7 +436,7 @@ function extractPriority(text: string): { priority: Priority; matchedSnippet?: s
 }
 
 /**
- * Categorizes based on Persian domain keywords
+ * دسته‌بندی بر اساس کلیدواژه‌ها
  */
 function extractCategory(text: string): string {
   for (const rule of CATEGORY_RULES) {
@@ -342,27 +450,31 @@ function extractCategory(text: string): string {
 }
 
 /**
- * Cleans the voice text into an actionable task title
- * by stripping helper filler words ("بگیرم", "کنم", "بگذارم", "ساعت ۹", "فردا", etc.)
+ * پاک‌سازی عنوان وظیفه از عبارات زمانی و افعال اضافی
  */
 function cleanPersianTaskTitle(text: string, snippetsToRemove: string[]): string {
   let title = text;
 
-  // Remove matched time/date snippets
   for (const snip of snippetsToRemove) {
     if (snip && snip.length > 1) {
       title = title.replace(snip, ' ');
     }
   }
 
-  // Remove common Persian verbs suffixes or prefixes used in speech
+  // حذف نام روزها و عبارات روز اول تا هفتم
+  for (const rule of DAY_NUMBER_MAPPING_RULES) {
+    for (const pat of rule.patterns) {
+      title = title.replace(new RegExp(`\\\\b${pat}\\\\b`, 'g'), ' ');
+      title = title.replace(pat, ' ');
+    }
+  }
+
   title = title
     .replace(/(?:باید|می‌خواهم|میخوام|قرار است|یادم باشد|یادم باشه)\s*/g, '')
     .replace(/\s*(?:بگیرم|کنم|بگذارم|وقت بگذارم|ارسال کنم|آماده کنم|بروم|برم|انجام دهم|انجام بدم|داشته باشم|بخرم|بزنم)\.?$/g, '')
     .replace(/^(?:که|برای|تا)\s*/g, '')
     .trim();
 
-  // Normalize spaces
   title = title.replace(/\s+/g, ' ').trim();
 
   if (!title) {
@@ -373,9 +485,14 @@ function cleanPersianTaskTitle(text: string, snippetsToRemove: string[]): string
 }
 
 /**
- * Master parser: Processes spoken Persian speech and creates a structured task
+ * موتور اصلی تحلیل فرمان صوتی فارسی
+ * با پشتیبانی از تاریخ فعال نرم‌افزار (عدم وابستگی اجباری به تاریخ سیستم)
  */
-export function parsePersianVoiceCommand(rawSpeech: string): ParsedVoiceResult {
+export function parsePersianVoiceCommand(
+  rawSpeech: string, 
+  baseDate?: ActiveJalaliDate
+): ParsedVoiceResult {
+  const activeDate = baseDate || getTodayJalali();
   const trimmed = rawSpeech.trim();
   const snippetsToRemove: string[] = [];
 
@@ -383,8 +500,8 @@ export function parsePersianVoiceCommand(rawSpeech: string): ParsedVoiceResult {
   const timeResult = extractTime(trimmed);
   if (timeResult.matchedSnippet) snippetsToRemove.push(timeResult.matchedSnippet);
 
-  // 2. Date & Recurrence
-  const dateResult = extractDateAndRecurrence(trimmed);
+  // 2. Date & Day Number (روز اول تا روز هفتم)
+  const dateResult = extractDateAndRecurrence(trimmed, activeDate);
   if (dateResult.matchedSnippet) snippetsToRemove.push(dateResult.matchedSnippet);
 
   // 3. Duration
@@ -401,17 +518,16 @@ export function parsePersianVoiceCommand(rawSpeech: string): ParsedVoiceResult {
   // 6. Clean Title
   const cleanTitle = cleanPersianTaskTitle(trimmed, snippetsToRemove);
 
-  // 7. Ambiguity check: As required in prompt:
-  // "اگر اطلاعات مهمی مانند تاریخ یا ساعت مبهم بود، برنامه سؤال تکمیلی بپرسد و هیچ تاریخ یا ساعت نامعلومی را حدس نزند."
+  // 7. Ambiguity check
   let needsClarification = false;
   let clarificationQuestion: string | undefined = undefined;
 
   if (!dateResult.hasExplicitDate && !timeResult.isFixed) {
     needsClarification = true;
-    clarificationQuestion = 'تاریخ یا ساعت مشخصی برای این وظیفه ذکر نشد. آیا برای امروز ثبت شود یا ساعت معینی در نظر دارید؟';
+    clarificationQuestion = `تاریخ یا ساعت مشخصی برای این وظیفه ذکر نشد. آیا برای ${activeDate.dayName} (${activeDate.dayOrdinalName}) ثبت شود؟`;
   } else if (!timeResult.isFixed && (trimmed.includes('تماس') || trimmed.includes('جلسه') || trimmed.includes('دیدار'))) {
     needsClarification = true;
-    clarificationQuestion = 'این کار نیاز به ساعت دقیق دارد. مایلید در چه ساعتی از روز تنظیم شود؟';
+    clarificationQuestion = 'این کار نیاز به ساعت دقیق دارد. مایلید در چه ساعتی تنظیم شود؟';
   }
 
   return {
@@ -427,6 +543,8 @@ export function parsePersianVoiceCommand(rawSpeech: string): ParsedVoiceResult {
     isTimeFixed: timeResult.isFixed,
     confidence: dateResult.hasExplicitDate || timeResult.isFixed ? 0.95 : 0.82,
     needsClarification,
-    clarificationQuestion
+    clarificationQuestion,
+    matchedDayNumber: dateResult.matchedDayNumber,
+    matchedDayName: dateResult.matchedDayName
   };
 }

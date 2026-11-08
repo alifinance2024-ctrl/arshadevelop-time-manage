@@ -21,6 +21,8 @@ interface HeaderProps {
   onTogglePhoneFrame: () => void;
   onOpenCodeExport: () => void;
   onOpenWidgetPreview: () => void;
+  onOpenDateTimeModal: () => void;
+  activeAppDate: import('../utils/jalali').ActiveJalaliDate;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,12 +31,18 @@ export const Header: React.FC<HeaderProps> = ({
   isPhoneFrame,
   onTogglePhoneFrame,
   onOpenCodeExport,
-  onOpenWidgetPreview
+  onOpenWidgetPreview,
+  onOpenDateTimeModal,
+  activeAppDate
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
-  const today = getTodayJalali();
 
   useEffect(() => {
+    if (settings.useCustomAppDateTime && settings.customAppTime) {
+      setCurrentTime(toPersianDigits(settings.customAppTime));
+      return;
+    }
+
     const update = () => {
       const now = new Date();
       const h = now.getHours().toString().padStart(2, '0');
@@ -45,7 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
     update();
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [settings.useCustomAppDateTime, settings.customAppTime]);
 
   const toggleTheme = () => {
     const nextTheme = settings.theme === 'dark' ? 'light' : 'dark';
@@ -84,21 +92,59 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Date & Time Live Display */}
-        <div className="hidden md:flex items-center gap-4 text-xs font-medium text-slate-600 dark:text-slate-300">
+        {/* Date & Time Live Display (Clickable to change app date & time) */}
+        <button
+          onClick={onOpenDateTimeModal}
+          title="کلیک برای تنظیم دستی تاریخ و ساعت نرم‌افزار"
+          className={`hidden md:flex items-center gap-3 text-xs font-medium px-3 py-1.5 rounded-xl border transition-all ${
+            settings.useCustomAppDateTime
+              ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-700/80 text-amber-900 dark:text-amber-200 hover:border-amber-400'
+              : 'bg-slate-100/70 hover:bg-slate-200/80 dark:bg-slate-800/60 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+          }`}
+        >
           <div className="flex items-center gap-1.5">
-            <CalendarDays className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-            <span>{today.humanReadable}</span>
+            <CalendarDays className={`w-3.5 h-3.5 ${settings.useCustomAppDateTime ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
+            <span className="font-semibold">{activeAppDate.dayName}</span>
+            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-white/70 dark:bg-slate-900/60 px-1.5 py-0.5 rounded">
+              {activeAppDate.dayOrdinalName}
+            </span>
+            <span>{toPersianDigits(activeAppDate.jd)} {activeAppDate.monthName} {toPersianDigits(activeAppDate.jy)}</span>
           </div>
-          <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">|</span>
+
+          <span className="text-slate-300 dark:text-slate-600" aria-hidden="true">|</span>
+
           <div className="flex items-center gap-1.5 font-mono tabular-nums">
-            <Clock className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-            <span className="text-slate-700 dark:text-slate-200">{currentTime}</span>
+            <Clock className={`w-3.5 h-3.5 ${settings.useCustomAppDateTime ? 'text-amber-600 dark:text-amber-400' : 'text-teal-600 dark:text-teal-400'}`} />
+            <span>{currentTime}</span>
           </div>
-        </div>
+
+          {settings.useCustomAppDateTime ? (
+            <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 bg-amber-200/80 dark:bg-amber-900/60 px-1.5 py-0.5 rounded">
+              تاریخ دستی
+            </span>
+          ) : (
+            <span className="text-[10px] text-slate-600 dark:text-slate-300">
+              (تغییر)
+            </span>
+          )}
+        </button>
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Change Date Button */}
+          <button
+            onClick={onOpenDateTimeModal}
+            title="تنظیم تاریخ و ساعت نرم‌افزار"
+            className={`h-8 px-2.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${
+              settings.useCustomAppDateTime
+                ? 'bg-amber-500 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700'
+            }`}
+          >
+            <CalendarDays className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">تنظیم تاریخ</span>
+          </button>
+
           {/* Widget Preview Button */}
           <button
             onClick={onOpenWidgetPreview}

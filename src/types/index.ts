@@ -55,6 +55,11 @@ export interface UserSettings {
   soundEnabled: boolean;
   notificationsEnabled: boolean;
   customCategories: string[];
+
+  // تنظیم دلخواه تاریخ و ساعت نرم‌افزار (عدم اجبار به تاریخ دیفالت سیستم)
+  useCustomAppDateTime: boolean;
+  customAppDate: string;        // YYYY/MM/DD (Jalali)
+  customAppTime: string;        // HH:mm (24h)
 }
 
 export interface ParsedVoiceResult {
@@ -71,6 +76,9 @@ export interface ParsedVoiceResult {
   confidence: number;
   needsClarification: boolean;
   clarificationQuestion?: string;
+  matchedDayNumber?: number;     // 1 to 7 (1=شنبه, 2=یکشنبه, ..., 7=جمعه)
+  matchedDayName?: string;       // e.g. "شنبه (روز اول)"
 }
 
 export type TabType = 'home' | 'planner' | 'calendar' | 'tasks' | 'settings';
+

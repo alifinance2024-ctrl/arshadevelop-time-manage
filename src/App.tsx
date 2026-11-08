@@ -10,6 +10,8 @@ import { VoiceModal } from './components/VoiceModal';
 import { TaskModal } from './components/TaskModal';
 import { AndroidCodeExportModal } from './components/AndroidCodeExportModal';
 import { WidgetPreviewModal } from './components/WidgetPreviewModal';
+import { AppDateTimeModal } from './components/AppDateTimeModal';
+import { AlarmAlertModal } from './components/AlarmAlertModal';
 import { Task, UserSettings, TabType } from './types';
 import { 
   loadTasksFromStorage, 
@@ -17,7 +19,7 @@ import {
   loadSettingsFromStorage, 
   saveSettingsToStorage 
 } from './utils/storage';
-import { addDaysToJalali, getTodayJalali } from './utils/jalali';
+import { addDaysToJalali, getAppActiveJalali, toPersianDigits } from './utils/jalali';
 import { ScheduledSlot } from './utils/plannerAlgorithm';
 
 export default function App() {
@@ -25,12 +27,20 @@ export default function App() {
   const [settings, setSettings] = useState<UserSettings>(() => loadSettingsFromStorage());
   const [currentTab, setCurrentTab] = useState<TabType>('home');
 
+  // Active software date (can be overridden by user or default to system)
+  const activeAppDate = getAppActiveJalali(settings);
+
   // Modals state
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
   const [isCodeExportOpen, setIsCodeExportOpen] = useState(false);
   const [isWidgetPreviewOpen, setIsWidgetPreviewOpen] = useState(false);
+  const [isDateTimeModalOpen, setIsDateTimeModalOpen] = useState(false);
+
+  // 5-Minute Pre-Task Alarm State (Prompt requirement 2)
+  const [activeAlarmTask, setActiveAlarmTask] = useState<Task | null>(null);
+  const [dismissedAlarmMap, setDismissedAlarmMap] = useState<Record<string, number>>({});
 
   // POCO M4 device frame view toggle
   const [isPhoneFrame, setIsPhoneFrame] = useState(false);
@@ -49,6 +59,73 @@ export default function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [settings]);
+
+  // 5-Minute Pre-Task Alarm Monitor (User requirement 2)
+  // Monitors tasks for the active date and triggers an audible & visual alarm when 5 minutes remain
+  useEffect(() => {
+    const checkUpcomingTaskAlarms = () => {
+      if (activeAlarmTask) return;
+
+      const [curH, curM] = activeAppDate.activeTime.split(':').map(Number);
+      if (isNaN(curH) || isNaN(curM)) return;
+      const currentMinFromMidnight = curH * 60 + curM;
+      const nowMs = Date.now();
+
+      // Find any task for activeAppDate with a dueTime, not completed, whose alarm hasn't been dismissed
+      const target = tasks.find((t) => {
+        if (t.status === 'completed' || !t.dueTime) return false;
+        if (t.dueDate !== activeAppDate.formatted) return false;
+
+        // Check if dismissed/snoozed
+        const dismissUntil = dismissedAlarmMap[t.id];
+        if (dismissUntil && nowMs < dismissUntil) return false;
+
+        const [tH, tM] = t.dueTime.split(':').map(Number);
+        if (isNaN(tH) || isNaN(tM)) return false;
+        const taskMinFromMidnight = tH * 60 + tM;
+
+        const diffMinutes = taskMinFromMidnight - currentMinFromMidnight;
+        // Alarm triggers when 5 minutes remain (or between 1 and 5 minutes remaining)
+        return diffMinutes > 0 && diffMinutes <= 5;
+      });
+
+      if (target) {
+        setActiveAlarmTask(target);
+      }
+    };
+
+    checkUpcomingTaskAlarms();
+    const interval = setInterval(checkUpcomingTaskAlarms, 2000);
+    return () => clearInterval(interval);
+  }, [tasks, activeAppDate, dismissedAlarmMap, activeAlarmTask]);
+
+  const handleDismissAlarm = () => {
+    if (activeAlarmTask) {
+      setDismissedAlarmMap((prev) => ({
+        ...prev,
+        [activeAlarmTask.id]: Date.now() + 60 * 60 * 1000 // dismiss for 1 hour
+      }));
+      setActiveAlarmTask(null);
+    }
+  };
+
+  const handleSnoozeAlarm = (taskId: string) => {
+    // Snooze for 5 minutes
+    setDismissedAlarmMap((prev) => ({
+      ...prev,
+      [taskId]: Date.now() + 5 * 60 * 1000
+    }));
+    setActiveAlarmTask(null);
+  };
+
+  const handleCompleteAlarmTask = (taskId: string) => {
+    handleToggleTaskComplete(taskId);
+    setDismissedAlarmMap((prev) => ({
+      ...prev,
+      [taskId]: Date.now() + 24 * 60 * 60 * 1000
+    }));
+    setActiveAlarmTask(null);
+  };
 
   // Task actions
   const handleToggleTaskComplete = (taskId: string) => {
@@ -93,13 +170,12 @@ export default function App() {
     );
   };
 
-  // Overdue rollover (prompt section 11)
+  // Overdue rollover (prompt section 11) - uses activeAppDate
   const handleRolloverOverdueTasks = (taskIds?: string[]) => {
-    const today = getTodayJalali();
     setTasks((prev) =>
       prev.map((t) => {
         if ((!taskIds || taskIds.includes(t.id)) && t.status !== 'completed') {
-          return { ...t, dueDate: today.formatted, status: 'registered' };
+          return { ...t, dueDate: activeAppDate.formatted, status: 'registered' };
         }
         return t;
       })
@@ -158,6 +234,8 @@ export default function App() {
         onTogglePhoneFrame={() => setIsPhoneFrame(!isPhoneFrame)}
         onOpenCodeExport={() => setIsCodeExportOpen(true)}
         onOpenWidgetPreview={() => setIsWidgetPreviewOpen(true)}
+        onOpenDateTimeModal={() => setIsDateTimeModalOpen(true)}
+        activeAppDate={activeAppDate}
       />
 
       {/* Main Container: Full-width responsive OR Xiaomi POCO M4 device simulator */}
@@ -172,7 +250,7 @@ export default function App() {
           {/* POCO M4 Notch & Speaker (only when isPhoneFrame is true) */}
           {isPhoneFrame && (
             <div className="pt-3 pb-2 px-6 bg-slate-900 text-white flex items-center justify-between text-[11px] font-mono shrink-0 select-none">
-              <span>09:14</span>
+              <span>{toPersianDigits(activeAppDate.activeTime)}</span>
               <div className="w-4 h-4 rounded-full bg-slate-950 border border-slate-700 mx-auto" title="دوربین سلفی POCO M4" />
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] text-emerald-400 font-sans">8GB RAM</span>
@@ -187,12 +265,14 @@ export default function App() {
               <HomeDashboard
                 tasks={tasks}
                 settings={settings}
+                activeAppDate={activeAppDate}
                 onToggleTaskComplete={handleToggleTaskComplete}
                 onOpenVoice={() => setIsVoiceModalOpen(true)}
                 onOpenManualAdd={openNewTaskModal}
                 onSelectTask={openEditModal}
                 onRolloverOverdueTasks={handleRolloverOverdueTasks}
                 onNavigateTab={(tab) => setCurrentTab(tab)}
+                onOpenDateTimeModal={() => setIsDateTimeModalOpen(true)}
               />
             )}
 
@@ -200,6 +280,7 @@ export default function App() {
               <DailyPlannerView
                 tasks={tasks}
                 settings={settings}
+                activeAppDate={activeAppDate}
                 onUpdateTaskTime={(taskId, newTime, isFixed) => {
                   setTasks((prev) =>
                     prev.map((t) => (t.id === taskId ? { ...t, dueTime: newTime, isTimeFixed: isFixed } : t))
@@ -212,6 +293,7 @@ export default function App() {
             {currentTab === 'calendar' && (
               <CalendarView
                 tasks={tasks}
+                activeAppDate={activeAppDate}
                 onSelectTask={openEditModal}
                 onOpenManualAddForDate={openNewTaskModalForDate}
               />
@@ -220,6 +302,7 @@ export default function App() {
             {currentTab === 'tasks' && (
               <AllTasksView
                 tasks={tasks}
+                activeAppDate={activeAppDate}
                 onToggleTaskComplete={handleToggleTaskComplete}
                 onEditTask={openEditModal}
                 onDeleteTask={handleDeleteTask}
@@ -235,6 +318,8 @@ export default function App() {
                 tasks={tasks}
                 onSaveSettings={(s) => setSettings(s)}
                 onRestoreBackup={handleRestoreBackup}
+                onOpenDateTimeModal={() => setIsDateTimeModalOpen(true)}
+                activeAppDate={activeAppDate}
               />
             )}
           </div>
@@ -254,6 +339,7 @@ export default function App() {
         onClose={() => setIsVoiceModalOpen(false)}
         onSaveTask={handleSaveTask}
         customCategories={settings.customCategories}
+        activeAppDate={activeAppDate}
       />
 
       {/* Manual Task Creator/Editor Modal */}
@@ -266,6 +352,15 @@ export default function App() {
         onSave={handleSaveTask}
         taskToEdit={taskToEdit}
         customCategories={settings.customCategories}
+        activeAppDate={activeAppDate}
+      />
+
+      {/* App Reference Date & Time Modal (Prompt enhancement 2) */}
+      <AppDateTimeModal
+        isOpen={isDateTimeModalOpen}
+        onClose={() => setIsDateTimeModalOpen(false)}
+        settings={settings}
+        onUpdateSettings={handleUpdateSettings}
       />
 
       {/* Android Kotlin Code Export Modal */}
@@ -281,6 +376,14 @@ export default function App() {
         tasks={tasks}
         onOpenVoice={() => setIsVoiceModalOpen(true)}
         onOpenManualAdd={openNewTaskModal}
+      />
+
+      {/* 5-Minute Pre-Task Alarm Modal (User requirement 2) */}
+      <AlarmAlertModal
+        task={activeAlarmTask}
+        onDismiss={handleDismissAlarm}
+        onComplete={handleCompleteAlarmTask}
+        onSnooze={handleSnoozeAlarm}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Sparkles, 
   Clock, 
@@ -14,12 +14,21 @@ import {
 } from 'lucide-react';
 import { Task, UserSettings } from '../types';
 import { generateSmartDailyPlan, DayPlanProposal, ScheduledSlot } from '../utils/plannerAlgorithm';
-import { getTodayJalali, toPersianDigits, formatJalaliHuman, addDaysToJalali } from '../utils/jalali';
+import { 
+  toPersianDigits, 
+  toEnglishDigits, 
+  formatJalaliHuman, 
+  addDaysToJalali,
+  PERSIAN_DAY_DEFINITIONS,
+  PERSIAN_MONTH_NAMES,
+  jalaliToGregorian
+} from '../utils/jalali';
 import { audioService } from '../utils/audioService';
 
 interface DailyPlannerViewProps {
   tasks: Task[];
   settings: UserSettings;
+  activeAppDate: import('../utils/jalali').ActiveJalaliDate;
   onUpdateTaskTime: (taskId: string, newTime: string, isFixed?: boolean) => void;
   onApplyPlanProposal: (proposalSlots: ScheduledSlot[]) => void;
 }
@@ -27,12 +36,18 @@ interface DailyPlannerViewProps {
 export const DailyPlannerView: React.FC<DailyPlannerViewProps> = ({
   tasks,
   settings,
+  activeAppDate,
   onUpdateTaskTime,
   onApplyPlanProposal
 }) => {
-  const today = getTodayJalali();
+  const today = activeAppDate;
   const [selectedDate, setSelectedDate] = useState<string>(today.formatted);
   const [activeProposal, setActiveProposal] = useState<DayPlanProposal | null>(null);
+
+  // Sync selectedDate if activeAppDate changes from settings/modal
+  useEffect(() => {
+    setSelectedDate(activeAppDate.formatted);
+  }, [activeAppDate.formatted]);
 
   // Filter tasks for the selected date
   const tasksForDate = tasks.filter((t) => t.dueDate === selectedDate && t.status !== 'cancelled');
@@ -54,9 +69,34 @@ export const DailyPlannerView: React.FC<DailyPlannerViewProps> = ({
   };
 
   const changeDateBy = (days: number) => {
-    setSelectedDate(addDaysToJalali(selectedDate, days));
+    const nextDate = addDaysToJalali(selectedDate, days);
+    setSelectedDate(nextDate);
     setActiveProposal(null);
   };
+
+  // Generate 7-day strip centered on selected date (-3 to +3 days)
+  const stripOffsets = [-3, -2, -1, 0, 1, 2, 3];
+  const stripDays = stripOffsets.map((offset) => {
+    const dStr = addDaysToJalali(selectedDate, offset);
+    const parts = dStr.split('/').map((s) => parseInt(toEnglishDigits(s), 10));
+    const [jy, jm, jd] = parts;
+    const { gy, gm, gd } = jalaliToGregorian(jy, jm, jd);
+    const dateObj = new Date(Date.UTC(gy, gm - 1, gd, 12, 0, 0));
+    const dowIndex = (dateObj.getUTCDay() + 1) % 7;
+    const dayDef = PERSIAN_DAY_DEFINITIONS[dowIndex];
+    const monthName = PERSIAN_MONTH_NAMES[jm - 1] || '';
+
+    return {
+      dateStr: dStr,
+      dayNumber: dayDef.dayNumber,
+      dayName: dayDef.name,
+      dayOfMonth: jd,
+      monthName,
+      shortLabel: `${toPersianDigits(jd)} ${monthName}`,
+      isToday: dStr === today.formatted,
+      isSelected: dStr === selectedDate
+    };
+  });
 
   // Timeline slots to display (either the active proposal, or currently saved scheduled tasks)
   const currentSlots: ScheduledSlot[] = activeProposal
@@ -87,37 +127,103 @@ export const DailyPlannerView: React.FC<DailyPlannerViewProps> = ({
   return (
     <div className="space-y-5 pb-6">
       {/* Date Header Switcher */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-        <button
-          onClick={() => changeDateBy(-1)}
-          className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
-          title="روز قبل"
-        >
-          <ChevronRight className="w-5 h-5" />
-        </button>
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          {/* Previous Day: right side in RTL */}
+          <button
+            type="button"
+            onClick={() => changeDateBy(-1)}
+            className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-colors active:scale-95 shrink-0"
+            title="رفتن به روز قبل"
+          >
+            <ChevronRight className="w-4 h-4" />
+            <span>روز قبل</span>
+          </button>
 
-        <div className="text-center">
-          <div className="flex items-center justify-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
-            <CalendarDays className="w-3.5 h-3.5" />
-            <span>برنامه‌ریزی روزانه</span>
+          {/* Center Date Display */}
+          <div className="text-center min-w-0 flex-1 px-1">
+            <div className="flex items-center justify-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
+              <CalendarDays className="w-3.5 h-3.5" />
+              <span>برنامه‌ریزی روزانه</span>
+            </div>
+            <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white mt-0.5 truncate">
+              {formatJalaliHuman(selectedDate)}
+            </h2>
+            <div className="flex items-center justify-center gap-2 mt-1">
+              {selectedDate === today.formatted ? (
+                <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950 px-2.5 py-0.5 rounded-full">
+                  امروز (روز جاری فعال)
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedDate(today.formatted);
+                    setActiveProposal(null);
+                  }}
+                  className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 px-2.5 py-0.5 rounded-full hover:bg-emerald-100 transition-colors"
+                >
+                  بازگشت به امروز ({today.dayName})
+                </button>
+              )}
+            </div>
           </div>
-          <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-0.5">
-            {formatJalaliHuman(selectedDate)}
-            {selectedDate === today.formatted && (
-              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 mr-2 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full">
-                امروز
-              </span>
-            )}
-          </h2>
+
+          {/* Next Day: left side in RTL */}
+          <button
+            type="button"
+            onClick={() => changeDateBy(1)}
+            className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-colors active:scale-95 shrink-0"
+            title="رفتن به روز بعد"
+          >
+            <span>روز بعد</span>
+            <ChevronLeft className="w-4 h-4" />
+          </button>
         </div>
 
-        <button
-          onClick={() => changeDateBy(1)}
-          className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
-          title="روز بعد"
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
+        {/* 7-Day Quick Strip for smooth day-by-day navigation */}
+        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80">
+          <div className="flex items-center justify-between mb-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+            <span className="font-medium">مرور روزها (روزی یک گام):</span>
+            <span className="text-emerald-600 dark:text-emerald-400 font-medium">انتخاب مستقیم هر روز</span>
+          </div>
+          <div className="grid grid-cols-7 gap-1 sm:gap-1.5 text-center">
+            {stripDays.map((d) => {
+              const countForThisDay = tasks.filter((t) => t.dueDate === d.dateStr && t.status !== 'cancelled').length;
+              return (
+                <button
+                  key={d.dateStr}
+                  type="button"
+                  onClick={() => {
+                    setSelectedDate(d.dateStr);
+                    setActiveProposal(null);
+                  }}
+                  className={`py-2 px-1 rounded-xl border transition-all flex flex-col items-center justify-center gap-0.5 ${
+                    d.isSelected
+                      ? 'bg-emerald-600 text-white border-emerald-600 font-bold shadow-md ring-2 ring-emerald-500/30'
+                      : d.isToday
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+                      : 'bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <span className="text-[10px] opacity-90 leading-tight">
+                    {d.dayName}
+                  </span>
+                  <span className="text-[11px] font-bold">
+                    {d.shortLabel}
+                  </span>
+                  {countForThisDay > 0 && (
+                    <span className={`text-[9px] px-1 rounded-full font-mono mt-0.5 ${
+                      d.isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                    }`}>
+                      {toPersianDigits(countForThisDay)} کار
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Algorithm Trigger Banner */}

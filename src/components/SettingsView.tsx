@@ -16,24 +16,30 @@ import {
   Check, 
   ShieldCheck, 
   Plane,
-  Save
+  Save,
+  Volume2
 } from 'lucide-react';
 import { UserSettings, Task } from '../types';
 import { toPersianDigits } from '../utils/jalali';
 import { exportBackupJSON, restoreBackupFromJSON } from '../utils/storage';
+import { audioService } from '../utils/audioService';
 
 interface SettingsViewProps {
   settings: UserSettings;
   tasks: Task[];
   onSaveSettings: (newSettings: UserSettings) => void;
   onRestoreBackup: (tasks: Task[], settings: UserSettings) => void;
+  onOpenDateTimeModal?: () => void;
+  activeAppDate?: import('../utils/jalali').ActiveJalaliDate;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   tasks,
   onSaveSettings,
-  onRestoreBackup
+  onRestoreBackup,
+  onOpenDateTimeModal,
+  activeAppDate
 }) => {
   const [formData, setFormData] = useState<UserSettings>(settings);
   const [newCatInput, setNewCatInput] = useState('');
@@ -115,7 +121,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               تنظیمات شخصی و سیستم
             </h2>
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              شخصی‌سازی ساعات کاری، مدل Whisper، پشتیبان‌گیری و تم
+              شخصی‌سازی ساعات کاری، تاریخ مبنا، مدل Whisper و تم
             </p>
           </div>
         </div>
@@ -129,6 +135,60 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       <form onSubmit={handleSave} className="space-y-5">
+        {/* App Date & Time Setting Card (Prompt item 2) */}
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-amber-500" />
+              <span>تنظیم تاریخ و ساعت نرم‌افزار (عدم اجبار به تاریخ دیفالت سیستم)</span>
+            </h3>
+
+            {onOpenDateTimeModal && (
+              <button
+                type="button"
+                onClick={onOpenDateTimeModal}
+                className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/80 hover:bg-amber-100 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-xs font-bold transition-colors"
+              >
+                تغییر تاریخ و ساعت
+              </button>
+            )}
+          </div>
+
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            امکان تنظیم تاریخ نرم‌افزار فراهم است تا بدون وابستگی به تقویم یا ساعت پیش‌فرض کامپیوتر بتوانید هر روز دلخواهی را به عنوان روز جاری برای برنامه‌ریز، کارهای عقب‌افتاده و دستیار صوتی انتخاب کنید.
+          </p>
+
+          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="space-y-0.5 text-center sm:text-right">
+              <span className="text-slate-600 dark:text-slate-300 text-[11px] block">زمان جاری فعال در نرم‌افزار:</span>
+              <span className="font-bold text-slate-900 dark:text-white">
+                {activeAppDate?.humanReadable || 'امروز'} · ساعت {activeAppDate ? toPersianDigits(activeAppDate.activeTime) : '۰۹:۰۰'}
+              </span>
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block">
+                {activeAppDate?.dayOrdinalName} (روز {activeAppDate ? toPersianDigits(activeAppDate.dayNumber) : '۱'} از ۷)
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.useCustomAppDateTime}
+                  onChange={(e) => {
+                    const updated = { ...formData, useCustomAppDateTime: e.target.checked };
+                    setFormData(updated);
+                    onSaveSettings(updated);
+                  }}
+                  className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500"
+                />
+                <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                  فعال‌سازی حالت تاریخ دلخواه
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+
         {/* User Profile */}
         <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
           <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
@@ -196,6 +256,40 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <option value={30}>۳۰ دقیقه</option>
               </select>
             </div>
+          </div>
+        </div>
+
+        {/* 5-Minute Pre-Task Alarm Settings (User requirement 2) */}
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+              <Bell className="w-4 h-4 text-amber-500" />
+              <span>زنگ هشدار ۵ دقیقه قبل از موعد وظایف (Alarm)</span>
+            </h3>
+            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-lg flex items-center gap-1">
+              <Volume2 className="w-3 h-3 text-emerald-500" />
+              <span>آلارم فعال</span>
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            سیستم هوشمند دقیقاً ۵ دقیقه پیش از فرارسیدن موعد مقرر هر کار، با پخش نوای هشدار و نمایش اعلان فوری به شما یادآوری می‌کند تا برای انجام آن آماده شوید یا آن را به تعویق بیندازید.
+          </p>
+
+          <div className="p-3 bg-amber-50/60 dark:bg-amber-950/30 rounded-2xl border border-amber-200 dark:border-amber-800/60 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="text-xs text-amber-900 dark:text-amber-200">
+              <span className="font-bold block">تست صدای آلارم ۵ دقیقه قبل:</span>
+              <span className="text-[11px] opacity-80 block">برای شنیدن ملودی هشدار و تست صدای دستگاه کلیک کنید.</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => audioService.playTaskReminderAlarm()}
+              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-white text-xs font-bold shadow-md shadow-amber-500/20 active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
+            >
+              <Volume2 className="w-3.5 h-3.5" />
+              <span>پخش ملودی آلارم</span>
+            </button>
           </div>
         </div>
 

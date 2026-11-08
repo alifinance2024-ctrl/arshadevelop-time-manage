@@ -18,7 +18,10 @@ export const DEFAULT_SETTINGS: UserSettings = {
   airplaneModeTested: true,
   soundEnabled: true,
   notificationsEnabled: true,
-  customCategories: []
+  customCategories: [],
+  useCustomAppDateTime: false,
+  customAppDate: '',
+  customAppTime: '09:00'
 };
 
 /**

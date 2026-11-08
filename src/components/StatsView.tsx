@@ -15,10 +15,11 @@ import { getTodayJalali, toPersianDigits, PERSIAN_WEEKDAYS } from '../utils/jala
 
 interface StatsViewProps {
   tasks: Task[];
+  activeAppDate?: import('../utils/jalali').ActiveJalaliDate;
 }
 
-export const StatsView: React.FC<StatsViewProps> = ({ tasks }) => {
-  const today = getTodayJalali();
+export const StatsView: React.FC<StatsViewProps> = ({ tasks, activeAppDate }) => {
+  const today = activeAppDate || getTodayJalali();
 
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter((t) => t.status === 'completed').length;

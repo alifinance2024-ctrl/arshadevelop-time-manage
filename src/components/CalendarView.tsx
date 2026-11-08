@@ -21,16 +21,18 @@ import {
 
 interface CalendarViewProps {
   tasks: Task[];
+  activeAppDate: import('../utils/jalali').ActiveJalaliDate;
   onSelectTask: (task: Task) => void;
   onOpenManualAddForDate: (jalaliDate: string) => void;
 }
 
 export const CalendarView: React.FC<CalendarViewProps> = ({
   tasks,
+  activeAppDate,
   onSelectTask,
   onOpenManualAddForDate
 }) => {
-  const today = getTodayJalali();
+  const today = activeAppDate;
   const [currentYear, setCurrentYear] = useState(today.jy);
   const [currentMonth, setCurrentMonth] = useState(today.jm);
   const [selectedDate, setSelectedDate] = useState(today.formatted);

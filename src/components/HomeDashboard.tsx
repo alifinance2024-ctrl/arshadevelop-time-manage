@@ -22,25 +22,29 @@ import { audioService } from '../utils/audioService';
 interface HomeDashboardProps {
   tasks: Task[];
   settings: UserSettings;
+  activeAppDate: import('../utils/jalali').ActiveJalaliDate;
   onToggleTaskComplete: (taskId: string) => void;
   onOpenVoice: () => void;
   onOpenManualAdd: () => void;
   onSelectTask: (task: Task) => void;
   onRolloverOverdueTasks: (taskIds?: string[]) => void;
   onNavigateTab: (tab: 'planner' | 'calendar' | 'tasks' | 'settings') => void;
+  onOpenDateTimeModal: () => void;
 }
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   tasks,
   settings,
+  activeAppDate,
   onToggleTaskComplete,
   onOpenVoice,
   onOpenManualAdd,
   onSelectTask,
   onRolloverOverdueTasks,
-  onNavigateTab
+  onNavigateTab,
+  onOpenDateTimeModal
 }) => {
-  const today = getTodayJalali();
+  const today = activeAppDate;
 
   // Tasks for today
   const todayTasks = tasks.filter((t) => t.dueDate === today.formatted);

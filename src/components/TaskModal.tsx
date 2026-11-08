@@ -10,7 +10,13 @@ import {
   Hourglass
 } from 'lucide-react';
 import { Task, Priority, RecurrenceType, TaskStatus } from '../types';
-import { getTodayJalali, PERSIAN_MONTH_NAMES, toPersianDigits, toEnglishDigits } from '../utils/jalali';
+import { 
+  getTodayJalali, 
+  PERSIAN_MONTH_NAMES, 
+  toPersianDigits, 
+  toEnglishDigits,
+  getWeekDaysWithDates 
+} from '../utils/jalali';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -18,6 +24,7 @@ interface TaskModalProps {
   onSave: (task: Omit<Task, 'id' | 'createdAt'>, existingId?: string) => void;
   taskToEdit?: Task | null;
   customCategories: string[];
+  activeAppDate?: import('../utils/jalali').ActiveJalaliDate;
 }
 
 const DEFAULT_CATEGORIES = [
@@ -36,9 +43,10 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   onClose,
   onSave,
   taskToEdit,
-  customCategories
+  customCategories,
+  activeAppDate
 }) => {
-  const today = getTodayJalali();
+  const today = activeAppDate || getTodayJalali();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -117,6 +125,19 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
   const allCategories = Array.from(new Set([...DEFAULT_CATEGORIES, ...customCategories]));
 
+  const weekDaysWithDates = getWeekDaysWithDates(today);
+
+  const formatDurationHuman = (mins: number) => {
+    if (mins < 60) return `${toPersianDigits(mins)} دقیقه`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (m === 0) return `${toPersianDigits(h)} ساعت`;
+    return `${toPersianDigits(h)} ساعت و ${toPersianDigits(m)} دقیقه`;
+  };
+
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  const currentSelectedDateStr = `${dueYear}/${pad(dueMonth)}/${pad(dueDay)}`;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div 
@@ -187,12 +208,61 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           </div>
 
           {/* Jalali Date Selection */}
-          <div className="bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-2">
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5 text-emerald-500" />
-              <span>تاریخ انجام (تقویم شمسی)</span>
-            </label>
-            <div className="grid grid-cols-3 gap-2">
+          <div className="bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-emerald-500" />
+                <span>تاریخ انجام (تقویم شمسی):</span>
+              </label>
+              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                {currentSelectedDateStr}
+              </span>
+            </div>
+
+            {/* Quick Weekday Buttons: Day Name/Number + Exact Date */}
+            <div className="space-y-1">
+              <span className="text-[10px] text-slate-600 dark:text-slate-300 block font-medium">
+                انتخاب روز هفته (نمایش همزمان نام روز و تاریخ دقیق):
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-7 gap-1.5 text-[11px]">
+                {weekDaysWithDates.map((w) => {
+                  const isSelected = currentSelectedDateStr === w.jalaliDate;
+                  return (
+                    <button
+                      key={w.dayNumber}
+                      type="button"
+                      onClick={() => {
+                        const parts = w.jalaliDate.split('/').map((s) => parseInt(toEnglishDigits(s), 10));
+                        if (parts.length === 3) {
+                          setDueYear(parts[0]);
+                          setDueMonth(parts[1]);
+                          setDueDay(parts[2]);
+                        }
+                      }}
+                      className={`py-2 px-1 rounded-xl text-center border transition-all flex flex-col items-center justify-center gap-0.5 ${
+                        isSelected
+                          ? 'bg-emerald-600 text-white border-emerald-600 font-bold shadow-sm ring-2 ring-emerald-500/30'
+                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <span className="block text-[10px] opacity-90 leading-tight">
+                        {w.name} (روز {toPersianDigits(w.dayNumber)})
+                      </span>
+                      <span className="block text-[11px] font-bold">
+                        {w.shortLabel}
+                      </span>
+                      {w.isToday && (
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-amber-400 text-slate-900 font-bold leading-none">
+                          امروز
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
               {/* Day */}
               <div>
                 <span className="text-[10px] text-slate-600 dark:text-slate-300 mb-0.5 block">روز:</span>
@@ -244,7 +314,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           </div>
 
           {/* Time & Duration */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
                 <Clock className="w-3.5 h-3.5 text-teal-500" />
@@ -258,24 +328,47 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               />
             </div>
 
+            {/* Duration: Custom Minutes + Chips */}
             <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
-                <Hourglass className="w-3.5 h-3.5 text-amber-500" />
-                <span>مدت‌زمان تخمینی</span>
-              </label>
-              <select
-                value={duration}
-                onChange={(e) => setDuration(parseInt(e.target.value, 10))}
-                className="w-full text-sm rounded-xl p-2.5 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value={15}>۱۵ دقیقه</option>
-                <option value={30}>۳۰ دقیقه</option>
-                <option value={45}>۴۵ دقیقه</option>
-                <option value={60}>۱ ساعت</option>
-                <option value={90}>۱ ساعت و نیم</option>
-                <option value={120}>۲ ساعت</option>
-                <option value={180}>۳ ساعت</option>
-              </select>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                  <Hourglass className="w-3.5 h-3.5 text-amber-500" />
+                  <span>مدت‌زمان (دلخواه):</span>
+                </label>
+                <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-md">
+                  {formatDurationHuman(duration)}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  value={duration}
+                  onChange={(e) => setDuration(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className="flex-1 text-sm rounded-xl p-2 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                  placeholder="مدت به دقیقه..."
+                />
+                <span className="text-xs text-slate-500 font-medium shrink-0">دقیقه</span>
+              </div>
+
+              {/* Quick preset chips */}
+              <div className="flex flex-wrap gap-1 pt-1.5">
+                {[15, 30, 45, 60, 90, 120, 180].map((mins) => (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => setDuration(mins)}
+                    className={`px-2 py-0.5 rounded-md border text-[10px] font-medium transition-colors ${
+                      duration === mins
+                        ? 'bg-amber-500 text-white border-amber-500 font-bold'
+                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {mins < 60 ? `${toPersianDigits(mins)}د` : `${toPersianDigits(mins / 60)}س`}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
